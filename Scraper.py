@@ -1,44 +1,58 @@
+import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
+
+import pandas as pd
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException
-import pandas as pd
 
-# Driver options for Chrome
 driver_option = webdriver.ChromeOptions()
 driver_option.add_argument("--incognito")
 
 def create_webdriver():
     return webdriver.Chrome(options=driver_option)
 
-# Main script for scraping GitHub machine learning projects
-browser = create_webdriver()
-browser.get("https://github.com/collections/machine-learning")
+def get_project_list():
+    """Step 2: collect project names and URLs from the collection page."""
+    browser = create_webdriver()
+    try:
+        browser.get("https://github.com/collections/machine-learning")
+        projects = browser.find_elements(By.XPATH, "//h1[contains(@class, 'lh-condensed')]")
+        project_list = {}
+        for proj in projects:
+            links = proj.find_elements(By.XPATH, ".//a")
+            if not links:
+                continue
+            project_list[proj.text] = links[0].get_attribute("href")
+        return project_list
+    finally:
+        browser.quit()
 
-# Extract all projects
-projects = browser.find_elements(By.XPATH, "//h1[contains(@class, 'lh-condensed')]")
-print(f"Found {len(projects)} projects")
+def scrape_url(url):
+    """Visit one project page and return data from it."""
+    browser = create_webdriver()
+    try:
+        browser.get(url)
+        return {"project_url": url, "page_title": browser.title}
+    finally:
+        browser.quit()
 
-# Extract name and URL for each project
-project_list = {}
-for proj in projects:
-    proj_name = proj.text
-    links = proj.find_elements(By.XPATH, ".//a")
-    if not links:
-        print(f"Skipping heading with no link: {proj_name!r}")
-        continue
-    proj_url = links[0].get_attribute("href")
-    project_list[proj_name] = proj_url
+if __name__ == "__main__":
+    start = time.time()
 
-print(f"Collected {len(project_list)} projects")
-print(project_list)
+    project_list = get_project_list()
+    urlarray = list(project_list.values())
+    print(f"Scraping {len(urlarray)} project pages...")
 
-browser.quit()
+    results = []
+    with ProcessPoolExecutor(max_workers=4) as executor:
+        futures = [executor.submit(scrape_url, url) for url in urlarray]
+        for future in as_completed(futures):
+            try:
+                results.append(future.result())
+            except Exception as e:
+                print(f"A page failed: {e}")
 
-project_df = pd.DataFrame(
-    list(project_list.items()),
-    columns=["project_name", "project_url"]
-)
-project_df.to_csv("project_list.csv", index=False)
-print(project_df.head())
+    project_df = pd.DataFrame(results)
+    project_df.to_csv("project_details.csv", index=False)
+    print(project_df.head())
+    print(f"Done in {time.time() - start:.1f} seconds")
