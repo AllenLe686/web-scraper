@@ -3,6 +3,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
+import pandas as pd
 
 # Driver options for Chrome
 driver_option = webdriver.ChromeOptions()
@@ -34,3 +35,10 @@ print(f"Collected {len(project_list)} projects")
 print(project_list)
 
 browser.quit()
+
+project_df = pd.DataFrame(
+    list(project_list.items()),
+    columns=["project_name", "project_url"]
+)
+project_df.to_csv("project_list.csv", index=False)
+print(project_df.head())
